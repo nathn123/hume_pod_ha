@@ -1,6 +1,9 @@
 """End-to-end tests: config/subentry/options flows and simulated weigh-ins."""
 
 import asyncio
+import csv
+import json
+import pathlib
 from unittest.mock import MagicMock, patch
 
 from homeassistant import config_entries
@@ -366,11 +369,27 @@ async def test_add_and_edit_person(hass, ble):
 async def test_options_flow(hass, ble):
     entry = await setup_scale(hass, [("Dan", DAN)])
     r = await hass.config_entries.options.async_init(entry.entry_id)
+    assert r["type"] is FlowResultType.FORM
+    # Both new options are on the form (pre-filled with their defaults, so
+    # existing users who never touch them keep the old behaviour).
+    fields = {str(key) for key in r["data_schema"].schema}
+    assert {"impedance_input", "log_raw_packets"} <= fields
     r = await hass.config_entries.options.async_configure(
-        r["flow_id"], {"weight_tolerance": 5.0, "fat_tolerance": 3.0}
+        r["flow_id"],
+        {
+            "weight_tolerance": 5.0,
+            "fat_tolerance": 3.0,
+            "impedance_input": "high_band",
+            "log_raw_packets": True,
+        },
     )
     assert r["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {"weight_tolerance": 5.0, "fat_tolerance": 3.0}
+    assert entry.options == {
+        "weight_tolerance": 5.0,
+        "fat_tolerance": 3.0,
+        "impedance_input": "high_band",
+        "log_raw_packets": True,
+    }
 
 
 # ---- weigh-ins ----------------------------------------------------------------
@@ -610,3 +629,97 @@ async def test_real_pod2_weigh_in_replay(hass, ble):
     assert device.sw_version == "002.000.004.000"
     assert device.model_id == "Body Pod 2"
     assert device.hw_version == "V1"
+
+
+async def _enable_raw_capture(hass, entry):
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "log_raw_packets": True}
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)  # listener reloads
+    return pathlib.Path(hass.config.path("hume_pod_raw", entry.entry_id))
+
+
+def _read(path):
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+async def test_raw_packet_capture_writes_packets_and_session(hass, ble):
+    """Opt-in capture logs every frame (duplicates too) and one session row."""
+    entry = await setup_scale(hass, [("Dan", DAN)])
+    base = await _enable_raw_capture(hass, entry)
+
+    packets = weigh_in(93.05)
+    await step_on(hass, ble, packets)
+
+    rows = _read(base / "packets.csv")
+    frames = [r for r in rows if r["frame_type"] != "adv"]
+    assert [r["frame_hex"] for r in frames] == [p.hex() for p in packets]
+    assert {r["session_id"] for r in frames} == {frames[0]["session_id"]}
+    assert all(r["mac"] == ADDR for r in rows)
+    assert all(r["length"] == str(len(bytes.fromhex(r["frame_hex"]))) for r in rows)
+    # Impedance frames carry their five decoded segment values.
+    be = [r for r in frames if r["frame_type"] == "be"]
+    assert [json.loads(r["decoded_json"])["segment_impedance"][0] for r in be] == [331.9, 295.1]
+    # Unknown-to-the-integration frames are stored whole with a raw type tag.
+    assert [r["frame_type"] for r in frames if r["frame_type"] == "df"] == ["df"]
+
+    (session,) = _read(base / "sessions.csv")
+    assert session["matched_person"] == "Dan"
+    assert session["weight_kg"] == "93.05"
+    assert session["cf_hex"] == packets[-4].hex()  # the locked weight frame
+    assert session["be_low_hex"] == packets[-3].hex()
+    assert session["be_high_hex"] == packets[-2].hex()
+    assert session["df_00_hex"] == packets[-1].hex()
+    assert session["df_10_hex"] == ""
+
+
+async def test_raw_capture_records_rejected_weigh_in(hass, ble):
+    """Weigh-ins that fail person-matching are captured with their match info."""
+    entry = await setup_scale(hass, [("Dan", DAN), ("Sam", SAM)])
+    base = await _enable_raw_capture(hass, entry)
+
+    await step_on(hass, ble, weigh_in(120.0))  # loaded with dumbbells: nobody matches
+
+    (session,) = _read(base / "sessions.csv")
+    assert session["matched_person"] == ""
+    assert session["match_distance"] not in ("", None)
+    assert session["weight_kg"] == "120.0"
+    assert session["be_low_hex"] and session["be_high_hex"]
+
+
+async def test_raw_capture_stops_when_disabled(hass, ble):
+    """Toggling the option off stops writing but leaves existing files alone."""
+    entry = await setup_scale(hass, [("Dan", DAN)])
+    base = await _enable_raw_capture(hass, entry)
+    await step_on(hass, ble, weigh_in(93.05))
+    packets_before = len(_read(base / "packets.csv"))
+    sessions_before = len(_read(base / "sessions.csv"))
+    assert sessions_before == 1
+
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "log_raw_packets": False}
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await step_on(hass, ble, weigh_in(93.05))
+
+    assert len(_read(base / "packets.csv")) == packets_before
+    assert len(_read(base / "sessions.csv")) == sessions_before
+    assert state(hass, "sensor.dan_weight") == "93.05"  # weigh-ins still work
+
+
+async def test_raw_capture_survives_composition_failure(hass, ble):
+    """Even if the maths blows up, the session's raw frames are recorded."""
+    entry = await setup_scale(hass, [("Dan", DAN)])
+    base = await _enable_raw_capture(hass, entry)
+
+    with patch(
+        "custom_components.hume_pod.scale.compute_body_composition",
+        side_effect=ValueError("boom"),
+    ):
+        await step_on(hass, ble, weigh_in(93.05))
+
+    (session,) = _read(base / "sessions.csv")
+    assert session["matched_person"] == ""
+    assert session["weight_kg"] == "93.05"
+    assert session["be_low_hex"] and session["be_high_hex"]

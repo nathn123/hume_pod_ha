@@ -144,6 +144,42 @@ Each person's latest results are stored and survive restarts. Metric sensors use
 
 Every weigh-in fires `hume_pod_measurement`, including the matched `person` (or `null` if unassigned), `match_reason` (`matched`, `only_new_person`, `no_match`, `ambiguous`, `manual`), `match_distances`, all metric values and raw impedances.
 
+## Raw data capture
+
+The scale's protocol is only partly documented: in particular, the payload of the four DF ("extended") frames is not decoded. If you want to help decode it, or simply keep every frame for your own analysis, turn on **Configure -> Log raw packets**. It is off by default, adds a few hundred bytes per weigh-in, and changes nothing else about how the integration works; capture does not depend on the log level.
+
+Files are appended under your Home Assistant config directory, one directory per scale, so they ride along with your HA backups:
+
+- `hume_pod_raw/<entry_id>/packets.csv` - one row per Bluetooth notification: weight frames, impedance frames, DF frames, advertisement manufacturer data, and any frame type the integration does not know yet, stored whole as hex. Duplicates and checksum failures are kept too; nothing is filtered or summarised.
+- `hume_pod_raw/<entry_id>/sessions.csv` - one row per weigh-in with the raw hex of each frame type and who it matched. Weigh-ins rejected by person-matching are recorded too, with an empty `matched_person`: those are often the most valuable captures (e.g. deliberately loaded calibration weigh-ins).
+
+| Column | Meaning |
+| --- | --- |
+| `ts_iso` | UTC timestamp, ISO 8601 |
+| `mac` | The scale's Bluetooth address |
+| `session_id` | Groups the frames of one weigh-in |
+| `frame_type` | `cf` weight, `be` impedance, `df` extended, `adv` advertisement; otherwise the frame's first byte in hex |
+| `index` | Impedance band (0 = low, 1 = high), DF index pair, or blank |
+| `length`, `checksum_ok` | Frame length; checksum is the XOR rule seen on CF frames - a `false` on another frame type may just mean a different layout, and the frame is stored regardless |
+| `frame_hex`, `decoded_json` | The full frame, and decoded values where known (weight for `cf`, the five segment impedances for `be`, the index pair for `df`); blank for unknown frames |
+| `matched_person`, `match_distance` | Who the weigh-in was attributed to, and the match distance; both blank when nobody matched |
+| `weight_kg`, `cf_hex`, `be_low_hex`, `be_high_hex`, `df_00_hex`, `df_10_hex`, `df_01_hex`, `df_11_hex` | The weigh-in's weight and the raw frame of each type; blank when that frame never arrived |
+
+DF payloads are stored raw because their meaning is not decoded yet. Nothing rotates: data accumulates until you delete the directory. Turning the option off stops writing and leaves existing files alone.
+
+Three months later, pulling everything into a dataframe:
+
+```python
+import pandas as pd
+
+base = "/config/hume_pod_raw/<entry_id>"
+packets = pd.read_csv(f"{base}/packets.csv", parse_dates=["ts_iso"])
+sessions = pd.read_csv(f"{base}/sessions.csv", parse_dates=["ts_iso"])
+
+# One row per weigh-in with both impedance bands:
+with_bands = sessions.dropna(subset=["be_low_hex", "be_high_hex"])
+```
+
 ## Limitations
 
 - **Estimates, not clinical values.** The scale reports only weight and impedance; everything else comes from published BIA regression equations that Blue2Scale's author calibrated against the Hume app.

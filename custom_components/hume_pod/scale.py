@@ -39,10 +39,12 @@ from .const import (
     CONF_EXPECTED_WEIGHT,
     CONF_FAT_TOLERANCE,
     CONF_HEIGHT,
+    CONF_LOG_RAW_PACKETS,
     CONF_SEX,
     CONF_WEIGHT_TOLERANCE,
     COOLDOWN_AFTER_SESSION,
     DEFAULT_FAT_TOLERANCE,
+    DEFAULT_LOG_RAW_PACKETS,
     DEFAULT_WEIGHT_TOLERANCE,
     DOMAIN,
     EVENT_MEASUREMENT,
@@ -60,12 +62,19 @@ from .protocol import (
     CHAR_NOTIFY_UUID,
     CHAR_RW_UUID,
     CHAR_WRITE_UUID,
+    HEADER_IMPEDANCE,
+    HEADER_WEIGHT,
     MIN_WEIGHT_KG,
     SEGMENTS,
+    ExtendedPacket,
+    ImpedancePacket,
     MeasurementSession,
     WeightPacket,
     build_user_command,
+    decode_packet,
+    verify_checksum,
 )
+from .raw_store import RawPacketStore, utc_now_iso
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -196,6 +205,13 @@ class HumePodScale:
         self._last_warning = -WARNING_INTERVAL
         self._last_mfr: dict[int, str] | None = None
         self._listeners: list[Callable[[], None]] = []
+        # Opt-in raw capture (log_raw_packets option); None while disabled.
+        # Toggling the option reloads the entry, which rebuilds the scale.
+        self._raw: RawPacketStore | None = (
+            RawPacketStore(hass, entry.entry_id)
+            if entry.options.get(CONF_LOG_RAW_PACKETS, DEFAULT_LOG_RAW_PACKETS)
+            else None
+        )
 
     # ---- persistence -------------------------------------------------------
 
@@ -326,6 +342,7 @@ class HumePodScale:
         if mfr != self._last_mfr:
             self._last_mfr = mfr
             _LOGGER.debug("%s advertisement manufacturer data: %s", self.address, mfr)
+            self._log_advertisement(service_info)
         rssi = service_info.rssi
         now = time.monotonic()
         if self.rssi is None or (abs(rssi - self.rssi) >= 3 and now - self._rssi_notified > 30):
@@ -417,11 +434,15 @@ class HumePodScale:
         )
 
         packets = 0
+        frames: list[bytes] = []
 
         def _on_notify(char: Any, data: bytearray) -> None:
             nonlocal packets
             packets += 1
-            _LOGGER.debug("%s notify %s: %s", self.address, _short_uuid(char), bytes(data).hex())
+            frame = bytes(data)
+            frames.append(frame)
+            _LOGGER.debug("%s notify %s: %s", self.address, _short_uuid(char), frame.hex())
+            self._log_frame(session.session_id, frame)
             self.hass.loop.call_soon_threadsafe(first_packet.set)
             was_locked = session.stable_weight_kg is not None
             pkt = session.feed(data)
@@ -507,6 +528,7 @@ class HumePodScale:
                 "seconds of waking it",
                 MIN_WEIGHT_KG,
             )
+            self._log_session_summary(session, frames, matched_person="", match_distance="")
             return False
         if not session.has_impedance:
             _LOGGER.debug(
@@ -516,9 +538,32 @@ class HumePodScale:
                 weight,
             )
         self.last_error = None
-        self.handle_weigh_in(
-            weight, session.impedance.get(0), session.impedance.get(1), dt_util.utcnow()
-        )
+        result: MatchResult | None = None
+        try:
+            result = self.handle_weigh_in(
+                weight, session.impedance.get(0), session.impedance.get(1), dt_util.utcnow()
+            )
+        finally:
+            # Raw capture must survive attribution or composition errors.
+            matched = (
+                self.person_subentries.get(result.person_id)
+                if result is not None and result.person_id
+                else None
+            )
+            distance = ""
+            if result is not None:
+                # Rejected sessions keep their match info: they are valuable too.
+                distance = (
+                    result.distances.get(result.person_id)
+                    if result.person_id
+                    else (min(result.distances.values()) if result.distances else "")
+                )
+            self._log_session_summary(
+                session,
+                frames,
+                matched_person=matched.title if matched else "",
+                match_distance=distance,
+            )
         return True
 
     async def _async_read_device_info(self, client: BleakClientWithServiceCache) -> None:
@@ -580,6 +625,96 @@ class HumePodScale:
             )
             return False
         return True
+
+    # ---- raw capture (opt-in) ----------------------------------------------
+
+    def _log_frame(self, session_id: str, frame: bytes) -> None:
+        """Record one notification frame in the raw CSV log (no-op unless opted in)."""
+        store = self._raw
+        if store is None or not frame:
+            return
+        pkt = decode_packet(frame)
+        decoded: dict[str, Any] | None = None
+        if isinstance(pkt, WeightPacket):
+            frame_type, index = "cf", None
+            decoded = {"weight_kg": pkt.weight_kg, "stable": pkt.stable}
+        elif isinstance(pkt, ImpedancePacket):
+            frame_type, index = "be", pkt.index
+            decoded = {"segment_impedance": list(pkt.ohms)}
+        elif isinstance(pkt, ExtendedPacket):
+            frame_type, index = "df", list(pkt.index)
+            decoded = {"extended_index": list(pkt.index)}
+        else:
+            # Unknown (or malformed) type: store it whole, keyed by its first byte.
+            frame_type, index = f"{frame[0]:02x}", None
+        store.append_packet(
+            ts_iso=utc_now_iso(),
+            mac=self.address,
+            session_id=session_id,
+            frame_hex=frame.hex(),
+            frame_type=frame_type,
+            index=index,
+            length=len(frame),
+            checksum_ok=verify_checksum(frame),
+            decoded=decoded,
+        )
+
+    def _log_advertisement(self, service_info: bluetooth.BluetoothServiceInfoBleak) -> None:
+        """Record an advertisement snapshot whenever its payload changes."""
+        store = self._raw
+        if store is None:
+            return
+        payloads = [bytes(v) for v in service_info.manufacturer_data.values()]
+        store.append_packet(
+            ts_iso=utc_now_iso(),
+            mac=self.address,
+            session_id="",
+            frame_hex=";".join(p.hex() for p in payloads),
+            frame_type="adv",
+            index=None,
+            length=sum(len(p) for p in payloads),
+            checksum_ok=None,
+            decoded={
+                "manufacturer_data": {
+                    cid: bytes(v).hex() for cid, v in service_info.manufacturer_data.items()
+                },
+                "name": service_info.name,
+                "rssi": service_info.rssi,
+            },
+        )
+
+    def _log_session_summary(
+        self,
+        session: MeasurementSession,
+        frames: Sequence[bytes],
+        *,
+        matched_person: str,
+        match_distance: float | str,
+    ) -> None:
+        """Record one row per weigh-in, matched or not; written even if attribution failed."""
+        store = self._raw
+        if store is None or not frames:
+            return
+
+        def _df(i: int, j: int) -> str:
+            frame = session.extended.get((i, j))
+            return frame.hex() if frame else ""
+
+        store.append_session(
+            ts_iso=utc_now_iso(),
+            mac=self.address,
+            session_id=session.session_id,
+            matched_person=matched_person,
+            match_distance=match_distance,
+            weight_kg=session.weight_kg,
+            cf_hex=(_frame_with(frames, HEADER_WEIGHT) or b"").hex(),
+            be_low_hex=(_frame_with(frames, HEADER_IMPEDANCE, 0) or b"").hex(),
+            be_high_hex=(_frame_with(frames, HEADER_IMPEDANCE, 1) or b"").hex(),
+            df_00_hex=_df(0, 0),
+            df_10_hex=_df(1, 0),
+            df_01_hex=_df(0, 1),
+            df_11_hex=_df(1, 1),
+        )
 
     # ---- attribution -------------------------------------------------------
 
@@ -735,6 +870,18 @@ class HumePodScale:
             },
             "pending": self.pending.as_dict() if self.pending else None,
         }
+
+
+def _frame_with(frames: Sequence[bytes], header: int, index: int | None = None) -> bytes | None:
+    """The most recent frame with the given header (and impedance band index)."""
+    for frame in reversed(frames):
+        if (
+            frame
+            and frame[0] == header
+            and (index is None or (len(frame) > 1 and frame[1] == index))
+        ):
+            return frame
+    return None
 
 
 def _short_uuid(obj: Any) -> str:

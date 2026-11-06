@@ -9,6 +9,7 @@ Protocol notes derived from Blue2Scale's BLE_SCALE_PROTOCOL.md by Jozef Jaroscia
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
 CHAR_WRITE_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"  # user profile command
@@ -88,6 +89,22 @@ def build_user_command(male: bool, age: int, height_cm: float, activity: int) ->
     return bytes([0xFE, user_id, sex, act, height, age_b, unit, checksum])
 
 
+def verify_checksum(data: bytes | bytearray) -> bool:
+    """True if the XOR of every byte but the last equals the last byte.
+
+    Observed to hold on CF frames from several firmware builds (Body Pod 2
+    included). Other frame types may use a different layout, so a False is a
+    hint for the raw log, not proof of corruption.
+    """
+    data = bytes(data)
+    if len(data) < 2:
+        return False
+    acc = 0
+    for byte in data[:-1]:
+        acc ^= byte
+    return acc == data[-1]
+
+
 @dataclass(frozen=True)
 class WeightPacket:
     weight_kg: float
@@ -144,6 +161,8 @@ def decode_packet(data: bytes | bytearray) -> Packet | None:
 class MeasurementSession:
     """Accumulates packets from one weigh-in."""
 
+    # Random ID grouping the frames of this weigh-in (used by the raw log).
+    session_id: str = field(default_factory=lambda: uuid4().hex)
     last_weight_kg: float | None = None
     stable_weight_kg: float | None = None
     impedance: dict[int, tuple[float, ...]] = field(default_factory=dict)

@@ -21,6 +21,13 @@ CONF_WEIGHT_TOLERANCE = "weight_tolerance"
 CONF_FAT_TOLERANCE = "fat_tolerance"
 DEFAULT_WEIGHT_TOLERANCE = 3.0  # kg
 DEFAULT_FAT_TOLERANCE = 4.0  # percentage points
+# Which impedance band feeds the composition equations (see README).
+CONF_IMPEDANCE_INPUT = "impedance_input"
+IMPEDANCE_INPUT_OPTIONS = ["low_band", "high_band"]
+DEFAULT_IMPEDANCE_INPUT = "low_band"
+# Opt-in CSV log of raw BLE frames (see raw_store.py and the README).
+CONF_LOG_RAW_PACKETS = "log_raw_packets"
+DEFAULT_LOG_RAW_PACKETS = False
 
 SEX_MALE = "male"
 SEX_FEMALE = "female"

@@ -36,11 +36,16 @@ from .const import (
     CONF_EXPECTED_WEIGHT,
     CONF_FAT_TOLERANCE,
     CONF_HEIGHT,
+    CONF_IMPEDANCE_INPUT,
+    CONF_LOG_RAW_PACKETS,
     CONF_SEX,
     CONF_WEIGHT_TOLERANCE,
     DEFAULT_FAT_TOLERANCE,
+    DEFAULT_IMPEDANCE_INPUT,
+    DEFAULT_LOG_RAW_PACKETS,
     DEFAULT_WEIGHT_TOLERANCE,
     DOMAIN,
+    IMPEDANCE_INPUT_OPTIONS,
     SEX_FEMALE,
     SEX_MALE,
     SUBENTRY_PERSON,
@@ -306,11 +311,20 @@ class HumePodOptionsFlow(OptionsFlow):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
+                vol.Required(CONF_IMPEDANCE_INPUT): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=IMPEDANCE_INPUT_OPTIONS,
+                        translation_key=CONF_IMPEDANCE_INPUT,
+                    )
+                ),
+                vol.Required(CONF_LOG_RAW_PACKETS): selector.BooleanSelector(),
             }
         )
         defaults = {
             CONF_WEIGHT_TOLERANCE: DEFAULT_WEIGHT_TOLERANCE,
             CONF_FAT_TOLERANCE: DEFAULT_FAT_TOLERANCE,
+            CONF_IMPEDANCE_INPUT: DEFAULT_IMPEDANCE_INPUT,
+            CONF_LOG_RAW_PACKETS: DEFAULT_LOG_RAW_PACKETS,
             **self.config_entry.options,
         }
         return self.async_show_form(

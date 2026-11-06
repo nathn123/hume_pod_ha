@@ -108,3 +108,17 @@ def test_body_pod2_lock_flag():
     for h in ("cf0000ab1800000001017c", "cf0000ce18000000010119", "cf0000ce18000000010018"):
         session.feed(bytes.fromhex(h))
     assert session.stable_weight_kg == 63.5 and session.weight_kg == 63.5
+
+
+def test_verify_checksum():
+    assert protocol.verify_checksum(bytes.fromhex("cf0000ce18000000010018"))
+    assert protocol.verify_checksum(bytes.fromhex("cf0000ab1800000001017c"))
+    assert not protocol.verify_checksum(bytes.fromhex("cf0000ce18000000010019"))
+    assert not protocol.verify_checksum(b"\xcf")
+    assert not protocol.verify_checksum(b"")
+
+
+def test_session_gets_a_unique_id():
+    a, b = protocol.MeasurementSession(), protocol.MeasurementSession()
+    assert a.session_id and b.session_id
+    assert a.session_id != b.session_id

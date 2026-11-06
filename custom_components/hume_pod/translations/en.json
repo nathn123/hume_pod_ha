@@ -105,11 +105,15 @@
         "description": "A weigh-in goes to the person whose last weight and body fat it is closest to. If nobody is within the weight tolerance, or two people are too close to call, it is kept as an unassigned weigh-in for you to assign.",
         "data": {
           "weight_tolerance": "Weight tolerance",
-          "fat_tolerance": "Body fat tolerance"
+          "fat_tolerance": "Body fat tolerance",
+          "impedance_input": "Impedance input band",
+          "log_raw_packets": "Log raw packets"
         },
         "data_description": {
           "weight_tolerance": "How far a weigh-in may be from a person's last weight and still count as them.",
-          "fat_tolerance": "Typical body-fat change, in percentage points, between weigh-ins. Used to tell apart people of similar weight."
+          "fat_tolerance": "Typical body-fat change, in percentage points, between weigh-ins. Used to tell apart people of similar weight.",
+          "impedance_input": "Which impedance series feeds the body-composition equations. Low band matches older releases; high band tracks the Hume app's body fat more closely on some scales. Switching changes computed values from now on, so don't flip it casually mid-trend.",
+          "log_raw_packets": "Append every raw Bluetooth frame and a per-weigh-in summary to CSV files under hume_pod_raw/ in your config directory, for research and troubleshooting. A few hundred bytes per weigh-in."
         }
       }
     }
@@ -126,6 +130,12 @@
         "sedentary": "Sedentary",
         "moderate": "Moderate",
         "active": "Active"
+      }
+    },
+    "impedance_input": {
+      "options": {
+        "low_band": "Low band",
+        "high_band": "High band"
       }
     }
   },
