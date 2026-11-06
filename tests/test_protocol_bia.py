@@ -1,6 +1,7 @@
 """Tests against the worked example in Blue2Scale's BLE_SCALE_PROTOCOL.md."""
 
 import importlib.util
+import logging
 import pathlib
 import sys
 
@@ -122,3 +123,51 @@ def test_session_gets_a_unique_id():
     a, b = protocol.MeasurementSession(), protocol.MeasurementSession()
     assert a.session_id and b.session_id
     assert a.session_id != b.session_id
+
+
+# 93.6 kg, 183 cm male. A "series sum" is arm + trunk + leg on one side, i.e.
+# what the TBW equation turns into its impedance index.
+LOW_BAND = (210, 200, 200, 200, 210)  # sums to 610 ohm per side
+HIGH_BAND = (170, 160, 100, 253, 263)  # sums to 523 ohm per side
+
+
+def _hand_body_fat(z_total, weight, height):
+    """The existing fat equation, worked by hand from one band's series sum."""
+    imp_index = height * height / z_total
+    tbw = 0.464 * imp_index + 0.19 * weight + 3.03
+    ffm = tbw / 0.731
+    fat_mass = round(max(0.0, weight - ffm), 1)
+    return round(fat_mass / weight * 100, 1)
+
+
+def test_low_band_remains_the_default():
+    r = bia.compute_body_composition(LOW_BAND, HIGH_BAND, 93.6, 183, 40, True)
+    assert r == bia.compute_body_composition(
+        LOW_BAND, HIGH_BAND, 93.6, 183, 40, True, primary="low"
+    )
+    assert r["body_fat"] == _hand_body_fat(610, 93.6, 183)
+
+
+def test_high_band_feeds_the_equations_when_selected():
+    low = bia.compute_body_composition(LOW_BAND, HIGH_BAND, 93.6, 183, 40, True)
+    high = bia.compute_body_composition(LOW_BAND, HIGH_BAND, 93.6, 183, 40, True, primary="high")
+    assert high["body_fat"] == _hand_body_fat(523, 93.6, 183)
+    # The high band gives markedly lower body fat than the low band, which is
+    # why the option exists (it tracks the Hume app more closely).
+    assert high["body_fat"] < low["body_fat"] - 5
+
+
+def test_high_band_missing_falls_back_with_one_warning(caplog):
+    low = bia.compute_body_composition(LOW_BAND, HIGH_BAND, 93.6, 183, 40, True)
+    with caplog.at_level(logging.WARNING):
+        for missing in ((), None):
+            r = bia.compute_body_composition(LOW_BAND, missing, 93.6, 183, 40, True, primary="high")
+            assert r == low
+    warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+    assert len(warnings) == 2  # one per call, never a per-metric spray
+    assert all("falling back to the low band" in rec.message for rec in warnings)
+
+
+def test_high_band_absent_needs_no_warning_on_low():
+    # Default behaviour must stay silent for weight-only/low-band users.
+    bia.compute_body_composition(LOW_BAND, (), 93.6, 183, 40, True)

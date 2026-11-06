@@ -10,6 +10,7 @@ as consumer-scale estimates, not clinical values.
 from __future__ import annotations
 
 from collections.abc import Sequence
+import logging
 import math
 
 SEG_NAMES = ("right_arm", "left_arm", "trunk", "right_leg", "left_leg")
@@ -22,6 +23,8 @@ FAT_DIST = {
     False: (0.055, 0.055, 0.400, 0.190, 0.190),
 }
 MUSCLE_FRAC = (0.80, 0.80, 0.833, 0.81, 0.81)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _r1(v: float) -> float:
@@ -54,12 +57,30 @@ def compute_body_composition(
     height_cm: float,
     age: int,
     male: bool,
+    primary: str = "low",
 ) -> dict[str, float | int]:
+    """Compute the metrics from one impedance band.
+
+    ``primary`` selects which band feeds the equations: "low" (the historical
+    behaviour) or "high" (empirically closer to the Hume app's body fat; see
+    the README). Only the input selection changes — no coefficients differ
+    between the bands. Falls back to the low band when the high band never
+    arrived.
+    """
     w = weight_kg
     h = height_cm
 
-    z_right = imp_low[0] + imp_low[2] + imp_low[3]
-    z_left = imp_low[1] + imp_low[2] + imp_low[4]
+    bands = imp_low
+    if primary == "high":
+        if imp_high and len(imp_high) >= 5:
+            bands = imp_high
+        else:
+            _LOGGER.warning(
+                "High-band impedance missing for this weigh-in; falling back to the low band"
+            )
+
+    z_right = bands[0] + bands[2] + bands[3]
+    z_left = bands[1] + bands[2] + bands[4]
     z_total = (z_right + z_left) / 2
     imp_index = (h * h) / z_total
 

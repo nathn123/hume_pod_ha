@@ -11,7 +11,7 @@ Protocol and body-composition maths are based on [Blue2Scale](https://github.com
 
 1. The Body Pod sleeps until you tap or step on it, then advertises over BLE for ~30 seconds.
 2. Home Assistant sees the advertisement, connects, and starts a measurement.
-3. The scale streams weight packets until the weight locks. **Stay on, barefoot, and hold the retractable hand bar with your arms out** until the scale finishes: it then measures segmental impedance (arms, trunk, legs) at ~50 kHz and ~250 kHz. Without the hand bar only weight is recorded. The Status sensor and the dashboard card show *Analysing body composition* during this stage; step off once it finishes.
+3. The scale streams weight packets until the weight locks. **Stay on, barefoot, and hold the retractable hand bar with your arms out** until the scale finishes: it then measures segmental impedance (arms, trunk, legs) on two frequency bands, called the *low band* and *high band* below (the exact frequencies are unverified - see [Impedance input](#impedance-input)). Without the hand bar only weight is recorded. The Status sensor and the dashboard card show *Analysing body composition* during this stage; step off once it finishes.
 4. The integration works out who it was (see below), computes 39 body-composition metrics with that person's profile, and updates their sensors.
 
 Weigh-ins with socks on (or stepping off early) still record **weight** and **BMI**; body-composition sensors keep their previous values.
@@ -143,6 +143,21 @@ Each person's latest results are stored and survive restarts. Metric sensors use
 ### Event
 
 Every weigh-in fires `hume_pod_measurement`, including the matched `person` (or `null` if unassigned), `match_reason` (`matched`, `only_new_person`, `no_match`, `ambiguous`, `manual`), `match_distances`, all metric values and raw impedances.
+
+## Impedance input
+
+The hand bar measures each body segment on two frequency bands. The body-composition equations were calibrated around 50 kHz, which is much closer to the scale's **high band** than its **low band**, but earlier releases fed the low band into them (Blue2Scale's behaviour, kept for compatibility).
+
+Under **Configure -> Impedance input band** you can pick which band feeds the equations:
+
+- **Low band** (the default) keeps the historical values, so nothing changes on upgrade.
+- **High band** uses the other series. On one Body Pod 2, a 93.6 kg, 183 cm male came out at roughly 30.6% body fat from the low band and 24.6% from the high band, against 25.5% in the Hume app: the high band is far closer to the manufacturer's figure. The size of the difference varies by body shape; the direction (high band gives lower body fat) is what the small validation set showed.
+
+Only the *input* changes: no coefficient or formula differs between the bands, so every metric moves consistently. If a weigh-in arrives without high-band frames, the integration falls back to the low band and logs a warning.
+
+The exact band frequencies are unverified. Hume Health's published specs for the Body Pod state 20-100 kHz, which is why the old "50 kHz"/"250 kHz" entity names were replaced with neutral **low band**/**high band** labels. Entity IDs, unique IDs and recorder history are unchanged. For context, see [openScale PR #1537](https://github.com/oliexdev/openScale/pull/1537) and [Blue2Scale issue #1](https://github.com/JozefJarosciak/Blue2Scale.com/issues/1).
+
+Switching the option changes computed values from that moment on (the recorder keeps the history, so the switch appears as a step in the charts). Don't flip it mid-trend casually: pick a band and stay with it.
 
 ## Raw data capture
 

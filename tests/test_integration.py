@@ -18,6 +18,7 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
     get_diagnostics_for_config_entry,
 )
 
+from custom_components.hume_pod.bia import compute_body_composition
 from custom_components.hume_pod.const import DOMAIN, EVENT_MEASUREMENT, SUBENTRY_PERSON
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -629,6 +630,26 @@ async def test_real_pod2_weigh_in_replay(hass, ble):
     assert device.sw_version == "002.000.004.000"
     assert device.model_id == "Body Pod 2"
     assert device.hw_version == "V1"
+
+
+async def test_high_band_option_feeds_the_equations(hass, ble):
+    """Selecting the high band changes body fat to the hand-computed value."""
+    entry = await setup_scale(hass, [("Dan", DAN)])
+    await step_on(hass, ble, weigh_in(93.05))
+    assert state(hass, "sensor.dan_body_fat") == "34.7"  # the historical low band
+
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "impedance_input": "high_band"}
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)  # listener reloads
+    assert state(hass, "sensor.dan_body_fat") == "34.7"  # stored values untouched
+
+    await step_on(hass, ble, weigh_in(93.05))
+    expected = compute_body_composition(
+        [v / 10 for v in LOW], [v / 10 for v in HIGH], 93.05, 173, 52, True, primary="high"
+    )["body_fat"]
+    assert expected < 34.7
+    assert state(hass, "sensor.dan_body_fat") == str(expected)
 
 
 async def _enable_raw_capture(hass, entry):

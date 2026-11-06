@@ -39,11 +39,13 @@ from .const import (
     CONF_EXPECTED_WEIGHT,
     CONF_FAT_TOLERANCE,
     CONF_HEIGHT,
+    CONF_IMPEDANCE_INPUT,
     CONF_LOG_RAW_PACKETS,
     CONF_SEX,
     CONF_WEIGHT_TOLERANCE,
     COOLDOWN_AFTER_SESSION,
     DEFAULT_FAT_TOLERANCE,
+    DEFAULT_IMPEDANCE_INPUT,
     DEFAULT_LOG_RAW_PACKETS,
     DEFAULT_WEIGHT_TOLERANCE,
     DOMAIN,
@@ -270,6 +272,7 @@ class HumePodScale:
         weight: float,
         on: datetime,
     ) -> dict[str, float | int]:
+        band = self.entry.options.get(CONF_IMPEDANCE_INPUT, DEFAULT_IMPEDANCE_INPUT)
         return compute_body_composition(
             low,
             high,
@@ -277,6 +280,7 @@ class HumePodScale:
             float(profile[CONF_HEIGHT]),
             self._age(profile, on),
             profile[CONF_SEX] == SEX_MALE,
+            primary="high" if band == "high_band" else "low",
         )
 
     # ---- listener plumbing -------------------------------------------------

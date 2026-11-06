@@ -113,7 +113,7 @@ class WeightPacket:
 
 @dataclass(frozen=True)
 class ImpedancePacket:
-    """Index 0 = low frequency (~50 kHz), 1 = high frequency (~250 kHz)."""
+    """Index 0 = low band, 1 = high band (exact frequencies unverified)."""
 
     index: int
     ohms: tuple[float, float, float, float, float]

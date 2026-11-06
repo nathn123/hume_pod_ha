@@ -254,10 +254,10 @@
         "name": "Fat mass right arm"
       },
       "impedance_low_right_arm": {
-        "name": "Impedance 50 kHz right arm"
+        "name": "Impedance low band right arm"
       },
       "impedance_high_right_arm": {
-        "name": "Impedance 250 kHz right arm"
+        "name": "Impedance high band right arm"
       },
       "left_arm_muscle": {
         "name": "Muscle left arm"
@@ -269,10 +269,10 @@
         "name": "Fat mass left arm"
       },
       "impedance_low_left_arm": {
-        "name": "Impedance 50 kHz left arm"
+        "name": "Impedance low band left arm"
       },
       "impedance_high_left_arm": {
-        "name": "Impedance 250 kHz left arm"
+        "name": "Impedance high band left arm"
       },
       "trunk_muscle": {
         "name": "Muscle trunk"
@@ -284,10 +284,10 @@
         "name": "Fat mass trunk"
       },
       "impedance_low_trunk": {
-        "name": "Impedance 50 kHz trunk"
+        "name": "Impedance low band trunk"
       },
       "impedance_high_trunk": {
-        "name": "Impedance 250 kHz trunk"
+        "name": "Impedance high band trunk"
       },
       "right_leg_muscle": {
         "name": "Muscle right leg"
@@ -299,10 +299,10 @@
         "name": "Fat mass right leg"
       },
       "impedance_low_right_leg": {
-        "name": "Impedance 50 kHz right leg"
+        "name": "Impedance low band right leg"
       },
       "impedance_high_right_leg": {
-        "name": "Impedance 250 kHz right leg"
+        "name": "Impedance high band right leg"
       },
       "left_leg_muscle": {
         "name": "Muscle left leg"
@@ -314,10 +314,10 @@
         "name": "Fat mass left leg"
       },
       "impedance_low_left_leg": {
-        "name": "Impedance 50 kHz left leg"
+        "name": "Impedance low band left leg"
       },
       "impedance_high_left_leg": {
-        "name": "Impedance 250 kHz left leg"
+        "name": "Impedance high band left leg"
       },
       "status": {
         "name": "Status",
