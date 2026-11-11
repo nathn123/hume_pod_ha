@@ -20,7 +20,9 @@
           "birthdate": "Date of birth",
           "height": "Height",
           "activity": "Activity level",
-          "expected_weight": "Approximate weight"
+          "expected_weight": "Approximate weight",
+          "webhook_url": "Webhook URL",
+          "webhook_token": "Webhook token"
         },
         "data_description": {
           "name": "Used for this person's device and entity names.",
@@ -28,7 +30,9 @@
           "birthdate": "Type it in (you can type the year directly), or use the picker. Age is recalculated at every weigh-in.",
           "height": "In centimetres.",
           "activity": "Sent to the scale with the profile.",
-          "expected_weight": "Optional. Helps recognise this person's first weigh-in when several people share the scale."
+          "expected_weight": "Optional. Helps recognise this person's first weigh-in when several people share the scale.",
+          "webhook_url": "Optional. When set, this person's weigh-ins are POSTed there as JSON; leave empty to disable. The payload structure is documented in the [README](https://github.com/danfulton72/hume_pod_ha#webhook).",
+          "webhook_token": "Optional. Sent as an Authorization: Bearer header with each webhook POST. See the [README](https://github.com/danfulton72/hume_pod_ha#webhook)."
         }
       }
     },
@@ -39,7 +43,8 @@
       "not_connectable": "A Body Pod was found, but only by a Bluetooth proxy or adapter that can't make connections. Enable active connections on your ESPHome Bluetooth proxy (bluetooth_proxy: active: true), or move an adapter that can connect within range."
     },
     "error": {
-      "invalid_birthdate": "Enter a valid date of birth, e.g. 21/03/1974 or 1974-03-21."
+      "invalid_birthdate": "Enter a valid date of birth, e.g. 21/03/1974 or 1974-03-21.",
+      "invalid_webhook_url": "Enter a webhook URL starting with http:// or https://, or leave it empty."
     }
   },
   "config_subentries": {
@@ -57,7 +62,9 @@
             "birthdate": "Date of birth",
             "height": "Height",
             "activity": "Activity level",
-            "expected_weight": "Approximate weight"
+            "expected_weight": "Approximate weight",
+            "webhook_url": "Webhook URL",
+            "webhook_token": "Webhook token"
           },
           "data_description": {
             "name": "Used for this person's device and entity names.",
@@ -65,7 +72,9 @@
             "birthdate": "Type it in (you can type the year directly), or use the picker. Age is recalculated at every weigh-in.",
             "height": "In centimetres.",
             "activity": "Sent to the scale with the profile.",
-            "expected_weight": "Optional. Helps recognise this person's first weigh-in when several people share the scale."
+            "expected_weight": "Optional. Helps recognise this person's first weigh-in when several people share the scale.",
+            "webhook_url": "Optional. When set, this person's weigh-ins are POSTed there as JSON; leave empty to disable. The payload structure is documented in the [README](https://github.com/danfulton72/hume_pod_ha#webhook).",
+            "webhook_token": "Optional. Sent as an Authorization: Bearer header with each webhook POST. See the [README](https://github.com/danfulton72/hume_pod_ha#webhook)."
           }
         },
         "reconfigure": {
@@ -76,7 +85,9 @@
             "birthdate": "Date of birth",
             "height": "Height",
             "activity": "Activity level",
-            "expected_weight": "Approximate weight"
+            "expected_weight": "Approximate weight",
+            "webhook_url": "Webhook URL",
+            "webhook_token": "Webhook token"
           },
           "data_description": {
             "name": "Used for this person's device and entity names.",
@@ -84,13 +95,16 @@
             "birthdate": "Type it in (you can type the year directly), or use the picker. Age is recalculated at every weigh-in.",
             "height": "In centimetres.",
             "activity": "Sent to the scale with the profile.",
-            "expected_weight": "Optional. Helps recognise this person's first weigh-in when several people share the scale."
+            "expected_weight": "Optional. Helps recognise this person's first weigh-in when several people share the scale.",
+            "webhook_url": "Optional. When set, this person's weigh-ins are POSTed there as JSON; leave empty to disable. The payload structure is documented in the [README](https://github.com/danfulton72/hume_pod_ha#webhook).",
+            "webhook_token": "Optional. Sent as an Authorization: Bearer header with each webhook POST. See the [README](https://github.com/danfulton72/hume_pod_ha#webhook)."
           }
         }
       },
       "error": {
         "name_taken": "Someone with this name is already set up on this scale.",
-        "invalid_birthdate": "Enter a valid date of birth, e.g. 21/03/1974 or 1974-03-21."
+        "invalid_birthdate": "Enter a valid date of birth, e.g. 21/03/1974 or 1974-03-21.",
+        "invalid_webhook_url": "Enter a webhook URL starting with http:// or https://, or leave it empty."
       },
       "abort": {
         "entry_not_loaded": "The scale must be loaded before people can be added.",

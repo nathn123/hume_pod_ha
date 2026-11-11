@@ -28,6 +28,11 @@ DEFAULT_IMPEDANCE_INPUT = "low_band"
 # Opt-in CSV log of raw BLE frames (see raw_store.py and the README).
 CONF_LOG_RAW_PACKETS = "log_raw_packets"
 DEFAULT_LOG_RAW_PACKETS = False
+# Optional per-person webhook (see webhook.py and the README): when a person's
+# profile carries a URL, their weigh-ins are POSTed there. Empty URL = off.
+CONF_WEBHOOK_URL = "webhook_url"
+CONF_WEBHOOK_TOKEN = "webhook_token"
+WEBHOOK_TIMEOUT = 10  # seconds
 
 SEX_MALE = "male"
 SEX_FEMALE = "female"

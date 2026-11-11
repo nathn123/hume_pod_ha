@@ -42,6 +42,8 @@ from .const import (
     CONF_IMPEDANCE_INPUT,
     CONF_LOG_RAW_PACKETS,
     CONF_SEX,
+    CONF_WEBHOOK_TOKEN,
+    CONF_WEBHOOK_URL,
     CONF_WEIGHT_TOLERANCE,
     COOLDOWN_AFTER_SESSION,
     DEFAULT_FAT_TOLERANCE,
@@ -77,6 +79,7 @@ from .protocol import (
     verify_checksum,
 )
 from .raw_store import RawPacketStore, utc_now_iso
+from .webhook import async_send_weigh_in
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -831,6 +834,23 @@ class HumePodScale:
             if composition:
                 payload.update(state.impedance)
         self.hass.bus.async_fire(EVENT_MEASUREMENT, payload)
+        self._maybe_send_webhook(person_id, payload)
+
+    def _maybe_send_webhook(self, person_id: str | None, payload: dict[str, Any]) -> None:
+        """POST an assigned weigh-in to that person's webhook, if they have one.
+
+        Fire-and-forget (see webhook.py): never awaited, never retried, and an
+        empty URL — the default — means nothing is sent at all.
+        """
+        if person_id is None:
+            return
+        data = self.person_subentries[person_id].data
+        if not (url := data.get(CONF_WEBHOOK_URL)):
+            return
+        self.hass.async_create_background_task(
+            async_send_weigh_in(self.hass, url, payload, data.get(CONF_WEBHOOK_TOKEN)),
+            f"{DOMAIN}_webhook",
+        )
 
     @callback
     def async_assign_pending(self, person_id: str) -> None:

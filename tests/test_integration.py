@@ -744,3 +744,123 @@ async def test_raw_capture_survives_composition_failure(hass, ble):
     assert session["matched_person"] == ""
     assert session["weight_kg"] == "93.05"
     assert session["be_low_hex"] and session["be_high_hex"]
+
+
+# ---- per-person webhook --------------------------------------------------------
+
+
+HOOK = "http://127.0.0.1:8123/hook"
+
+
+async def test_webhook_off_by_default(hass, ble, aioclient_mock):
+    """Nobody has a webhook URL, so weigh-ins POST nothing anywhere."""
+    await setup_scale(hass, [("Dan", DAN)])
+    aioclient_mock.post(HOOK, status=200)
+
+    await step_on(hass, ble, weigh_in(93.05))
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert len(aioclient_mock.mock_calls) == 0
+    assert state(hass, "sensor.dan_weight") == "93.05"
+
+
+async def test_webhook_posts_for_configured_person_only(hass, ble, aioclient_mock):
+    """Only people with a webhook URL post, with token header and event payload."""
+    dan = {**DAN, "webhook_url": HOOK, "webhook_token": "s3cret"}
+    await setup_scale(hass, [("Dan", dan), ("Sam", SAM)])
+    aioclient_mock.post(HOOK, status=200)
+    events = []
+    hass.bus.async_listen(EVENT_MEASUREMENT, events.append)
+
+    await step_on(hass, ble, weigh_in(93.05))
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert len(aioclient_mock.mock_calls) == 1
+    method, url, body, headers = aioclient_mock.mock_calls[0]
+    assert (method, str(url)) == ("POST", HOOK)
+    assert headers["Authorization"] == "Bearer s3cret"
+    assert body["person"] == "Dan" and body["weight"] == 93.05
+    assert body["composition"] is True and body["body_fat"] == 34.7
+    assert body["measured_at"].endswith("+00:00")
+    # The webhook body is exactly the local hume_pod_measurement event data.
+    assert events[-1].data == body
+
+    # Sam has no webhook URL: their weigh-in posts nothing.
+    await step_on(hass, ble, weigh_in(61.2))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(aioclient_mock.mock_calls) == 1
+    assert state(hass, "sensor.sam_weight") == "61.2"
+
+    # Unassigned weigh-ins (nobody matched) post nothing either.
+    await step_on(hass, ble, weigh_in(120.0))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(aioclient_mock.mock_calls) == 1
+
+
+async def test_webhook_posts_manual_assignment(hass, ble, aioclient_mock):
+    """Assigning a pending weigh-in to a person with a webhook posts it."""
+    dan = {**DAN, "webhook_url": HOOK}
+    entry = await setup_scale(hass, [("Dan", dan), ("Sam", SAM)])
+    aioclient_mock.post(HOOK, status=200)
+
+    await step_on(hass, ble, weigh_in(120.0))  # nobody matches
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(aioclient_mock.mock_calls) == 0
+
+    await hass.services.async_call(
+        DOMAIN, "assign_weigh_in", {"person": person_device(hass, entry, "Dan").id}, blocking=True
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert len(aioclient_mock.mock_calls) == 1
+    assert aioclient_mock.mock_calls[0][2]["match_reason"] == "manual"
+
+
+async def test_webhook_failure_does_not_break_weigh_in(hass, ble, aioclient_mock):
+    """A broken endpoint is only logged; the weigh-in still records."""
+    dan = {**DAN, "webhook_url": HOOK}
+    await setup_scale(hass, [("Dan", dan)])
+    aioclient_mock.post(HOOK, status=500)
+
+    await step_on(hass, ble, weigh_in(93.05))
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert state(hass, "sensor.dan_weight") == "93.05"
+    assert state(hass, "sensor.dan_body_fat") == "34.7"
+
+
+async def test_webhook_fields_in_person_form(hass, ble):
+    """The person form takes the webhook URL/token, validates and clears them."""
+    entry = await setup_scale(hass, [("Dan", DAN)])
+    r = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_PERSON), context={"source": config_entries.SOURCE_USER}
+    )
+    fields = {str(key) for key in r["data_schema"].schema}
+    assert {"webhook_url", "webhook_token"} <= fields
+
+    r = await hass.config_entries.subentries.async_configure(
+        r["flow_id"], {CONF_NAME: "Sam", **SAM, "webhook_url": "ftp://nope"}
+    )
+    assert r["errors"] == {"webhook_url": "invalid_webhook_url"}
+
+    r = await hass.config_entries.subentries.async_configure(
+        r["flow_id"], {CONF_NAME: "Sam", **SAM, "webhook_url": HOOK, "webhook_token": "tok"}
+    )
+    assert r["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    sam_id = next(s for s, sub in entry.subentries.items() if sub.title == "Sam")
+    assert entry.subentries[sam_id].data["webhook_url"] == HOOK
+    assert entry.subentries[sam_id].data["webhook_token"] == "tok"
+
+    # Clearing the URL removes it, leaving the person data as before.
+    r = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_PERSON),
+        context={"source": config_entries.SOURCE_RECONFIGURE, "subentry_id": sam_id},
+    )
+    r = await hass.config_entries.subentries.async_configure(
+        r["flow_id"], {CONF_NAME: "Sam", **SAM}
+    )
+    assert r["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert "webhook_url" not in entry.subentries[sam_id].data
+    assert "webhook_token" not in entry.subentries[sam_id].data

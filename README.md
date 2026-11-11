@@ -159,6 +159,86 @@ The exact band frequencies are unverified. Hume Health's published specs for the
 
 Switching the option changes computed values from that moment on (the recorder keeps the history, so the switch appears as a step in the charts). Don't flip it mid-trend casually: pick a band and stay with it.
 
+## Webhook
+
+Each person's profile has an optional **Webhook URL** (⋮ menu next to their name → **Reconfigure**). While it is empty — the default — nothing is sent anywhere. When set, every weigh-in matched to that person is POSTed there as JSON, so weigh-ins can flow straight into another service or script. An optional **Webhook token** is sent with it as an `Authorization: Bearer` header.
+
+Delivery is fire-and-forget: a single attempt with a 10 second timeout, no retries. Failures (timeouts, connection errors, non-2xx replies) are logged as warnings and never affect the weigh-in itself. Unassigned weigh-ins — where nobody matched — are never posted; assigning one afterwards with the *Assign weigh-in* service posts it then.
+
+The payload is identical to the local `hume_pod_measurement` event, so anything you can do with a Home Assistant automation trigger you can do with the webhook. A full body-composition weigh-in looks like this:
+
+```json
+{
+  "scale_entry_id": "01HX8Z4P9Q2R3S4T5U6V7W8X9Y",
+  "person_id": "01JY0A1B2C3D4E5F6G7H8J9K0L",
+  "person": "Dan",
+  "match_reason": "matched",
+  "match_distances": { "Dan": 0.14, "Sam": 2.87 },
+  "composition": true,
+  "measured_at": "2026-11-11T07:12:34+00:00",
+  "weight": 93.05,
+  "bmi": 31.1,
+  "body_fat": 34.7,
+  "fat_mass": 32.3,
+  "subcutaneous_fat_mass": 28.1,
+  "subcutaneous_fat": 30.2,
+  "visceral_fat": 14,
+  "android_fat": 12.9,
+  "gynoid_fat": 12.4,
+  "android_gynoid_ratio": 104.0,
+  "lean_mass": 56.6,
+  "lean_mass_percentage": 60.8,
+  "skeletal_muscle_mass": 38.4,
+  "body_cell_mass": 40.0,
+  "body_water": 47.7,
+  "total_body_water": 44.4,
+  "extracellular_water": 16.4,
+  "intracellular_water": 28.0,
+  "bone_mineral": 3.3,
+  "mineral_mass": 0.9,
+  "skeletal_mass": 10.1,
+  "organ_mass": 8.1,
+  "bmr": 1658,
+  "metabolic_age": 62,
+  "right_arm_muscle": 2.3,
+  "right_arm_fat": 32.5,
+  "right_arm_fat_mass": 1.9,
+  "left_arm_muscle": 2.3,
+  "left_arm_fat": 32.5,
+  "left_arm_fat_mass": 1.9,
+  "trunk_muscle": 19.9,
+  "trunk_fat": 33.9,
+  "trunk_fat_mass": 16.6,
+  "right_leg_muscle": 7.0,
+  "right_leg_fat": 27.3,
+  "right_leg_fat_mass": 4.4,
+  "left_leg_muscle": 7.0,
+  "left_leg_fat": 27.3,
+  "left_leg_fat_mass": 4.4,
+  "impedance_low_right_arm": 331.9,
+  "impedance_low_left_arm": 322.9,
+  "impedance_low_trunk": 27.0,
+  "impedance_low_right_leg": 230.7,
+  "impedance_low_left_leg": 232.1,
+  "impedance_high_right_arm": 295.1,
+  "impedance_high_left_arm": 289.0,
+  "impedance_high_trunk": 20.9,
+  "impedance_high_right_leg": 199.7,
+  "impedance_high_left_leg": 203.7
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `scale_entry_id`, `person_id` | Home Assistant's internal IDs for the scale and the person's subentry |
+| `person` | The person's name; always present, since unassigned weigh-ins are never posted |
+| `match_reason` | How the weigh-in was attributed: `matched`, `only_new_person` or `manual` (assigned by you) |
+| `match_distances` | How far each candidate was from the reading, in tolerance units (lower is closer) |
+| `composition` | `true` when impedance was measured. When `false` (socks on, or stepped off early) the payload carries only the matching/metadata fields plus `weight`, `bmi` and the person's other last-known figures |
+| `measured_at` | ISO 8601, UTC |
+| `weight`, `bmi`, … | The composition metrics, exactly the keys of the person's sensors (all 39 after a full weigh-in) |
+| `impedance_low_*`, `impedance_high_*` | The five segment impedances per band, in ohms, after a full weigh-in |
+
 ## Raw data capture
 
 The scale's protocol is only partly documented: in particular, the payload of the four DF ("extended") frames is not decoded. If you want to help decode it, or simply keep every frame for your own analysis, turn on **Configure -> Log raw packets**. It is off by default, adds a few hundred bytes per weigh-in, and changes nothing else about how the integration works; capture does not depend on the log level.

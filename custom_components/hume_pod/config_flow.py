@@ -39,6 +39,8 @@ from .const import (
     CONF_IMPEDANCE_INPUT,
     CONF_LOG_RAW_PACKETS,
     CONF_SEX,
+    CONF_WEBHOOK_TOKEN,
+    CONF_WEBHOOK_URL,
     CONF_WEIGHT_TOLERANCE,
     DEFAULT_FAT_TOLERANCE,
     DEFAULT_IMPEDANCE_INPUT,
@@ -93,6 +95,12 @@ PERSON_SCHEMA = vol.Schema(
                 mode=selector.NumberSelectorMode.BOX,
             )
         ),
+        # Optional per-person webhook (see webhook.py and the README): an empty
+        # URL disables it, so weigh-ins are not POSTed anywhere by default.
+        vol.Optional(CONF_WEBHOOK_URL): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+        ),
+        vol.Optional(CONF_WEBHOOK_TOKEN): selector.TextSelector(),
     }
 )
 
@@ -132,6 +140,19 @@ def _split_person(user_input: dict[str, Any], errors: dict[str, str]) -> tuple[s
         errors[CONF_BIRTHDATE] = "invalid_birthdate"
     else:
         data[CONF_BIRTHDATE] = birthdate
+    # Optional webhook: blank means off, otherwise it must be an http(s) URL.
+    # Only kept when set, so people without one store exactly the old shape.
+    if url := str(data.get(CONF_WEBHOOK_URL) or "").strip():
+        if url.startswith(("http://", "https://")):
+            data[CONF_WEBHOOK_URL] = url
+        else:
+            errors[CONF_WEBHOOK_URL] = "invalid_webhook_url"
+    else:
+        data.pop(CONF_WEBHOOK_URL, None)
+    if token := str(data.get(CONF_WEBHOOK_TOKEN) or "").strip():
+        data[CONF_WEBHOOK_TOKEN] = token
+    else:
+        data.pop(CONF_WEBHOOK_TOKEN, None)
     return name, data
 
 
